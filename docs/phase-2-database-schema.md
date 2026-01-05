@@ -138,4 +138,4 @@ This Phase 2 database schema is locked as of the date defined in the Phase 2 Dat
 
 No structural changes, additional tables, or field modifications are permitted until Phase 2 is completed and formally reviewed.
 
-Any future changes require explicit documentation and approval.
+
