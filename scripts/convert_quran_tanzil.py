@@ -14,7 +14,9 @@ def load_tanzil_file(path):
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line:
+
+            # Skip comments and empty lines
+            if not line or line.startswith("#"):
                 continue
 
             parts = line.split("|", 2)
