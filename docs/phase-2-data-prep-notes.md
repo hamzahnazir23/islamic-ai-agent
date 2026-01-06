@@ -16,4 +16,4 @@
 - No missing verse/hadith numbers
 - No merged records
 - No paraphrasing
-- No summarization
+
