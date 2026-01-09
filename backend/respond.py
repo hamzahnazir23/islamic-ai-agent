@@ -1,11 +1,18 @@
 from backend.search import semantic_search
+from backend.logger import log_event
 from openai import OpenAI
 
 MODEL = "gpt-4.1-mini"
 TOP_K = 5
 
 SIMILARITY_THRESHOLD = 0.80   # lower = more relevant
-MIN_SOURCES = 2               # minimum evidence requirement
+MIN_SOURCES = 2              # minimum evidence requirement
+
+# Explicit term enforcement (Phase 5 MVP)
+TERM_MAP = {
+    "patience": ["patience", "sabr"],
+    "prayer": ["prayer", "salah", "salat"],
+}
 
 client = OpenAI()
 
@@ -16,14 +23,15 @@ def load_system_prompt():
 
 
 def refusal_response():
-    """
-    Single canonical refusal.
-    NO SOURCES. EVER.
-    """
+    """Single canonical refusal. NEVER include sources."""
     return {
         "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
         "sources": [],
     }
+
+
+def extract_source_types(results):
+    return sorted({r[0] for r in results})
 
 
 def build_prompt(question, results):
@@ -45,10 +53,7 @@ def build_prompt(question, results):
         if source_type == "quran":
             label = f"[Qur’an {chapter_number}:{verse_or_hadith_number}]"
         else:
-            label = (
-                f"[{collection} | {book_name} | {chapter_name} | "
-                f"Hadith {verse_or_hadith_number}]"
-            )
+            label = f"[{collection} | {book_name} | {chapter_name} | Hadith {verse_or_hadith_number}]"
 
         context_blocks.append(f"{label}\n{text}")
 
@@ -66,22 +71,72 @@ Answer:
 """
 
 
-def respond_to_question(question, k=TOP_K):
-    # 1️⃣ Retrieve
+def respond_to_question(question: str, k: int = TOP_K):
     results = semantic_search(question, k)
 
-    # 2️⃣ Hard refusal gates (PRE-LLM)
-    if not results or len(results) < MIN_SOURCES:
+    # --- NO RESULTS ---
+    if not results:
+        log_event(
+            question=question,
+            status="refusal",
+            refusal_reason="no_results",
+            num_sources=0,
+            top_similarity=None,
+            source_types=[],
+            model=MODEL,
+        )
         return refusal_response()
 
+    source_types = extract_source_types(results)
+
+    # --- MINIMUM EVIDENCE GATE ---
+    if len(results) < MIN_SOURCES:
+        log_event(
+            question=question,
+            status="refusal",
+            refusal_reason="insufficient_sources",
+            num_sources=len(results),
+            top_similarity=results[0][-1],
+            source_types=source_types,
+            model=MODEL,
+        )
+        return refusal_response()
+
+    # --- RELEVANCE GATE ---
     best_score = results[0][-1]
     if best_score > SIMILARITY_THRESHOLD:
+        log_event(
+            question=question,
+            status="refusal",
+            refusal_reason="low_similarity",
+            num_sources=len(results),
+            top_similarity=best_score,
+            source_types=source_types,
+            model=MODEL,
+        )
         return refusal_response()
 
-    # 3️⃣ Build prompt
+    # --- EXPLICIT TERM GATE ---
+    question_lower = question.lower()
+    combined_text = " ".join(r[6].lower() for r in results)
+
+    for _, terms in TERM_MAP.items():
+        if any(term in question_lower for term in terms):
+            if not any(term in combined_text for term in terms):
+                log_event(
+                    question=question,
+                    status="refusal",
+                    refusal_reason="missing_explicit_term",
+                    num_sources=len(results),
+                    top_similarity=best_score,
+                    source_types=source_types,
+                    model=MODEL,
+                )
+                return refusal_response()
+
+    # --- BUILD PROMPT ---
     prompt = build_prompt(question, results)
 
-    # 4️⃣ Call model
     response = client.responses.create(
         model=MODEL,
         input=prompt,
@@ -89,22 +144,30 @@ def respond_to_question(question, k=TOP_K):
 
     answer_text = response.output_text.strip()
 
-    # 5️⃣ POST-LLM ENFORCEMENT (CRITICAL)
-    refusal_triggers = [
-        "insufficient",
-        "no clear answer",
-        "do not contain",
-        "cannot be determined",
-        "not addressed",
-    ]
-
-    if (
-        not answer_text
-        or any(trigger in answer_text.lower() for trigger in refusal_triggers)
-    ):
+    # --- EMPTY MODEL OUTPUT ---
+    if not answer_text:
+        log_event(
+            question=question,
+            status="refusal",
+            refusal_reason="empty_model_output",
+            num_sources=len(results),
+            top_similarity=best_score,
+            source_types=source_types,
+            model=MODEL,
+        )
         return refusal_response()
 
-    # 6️⃣ Success path ONLY
+    # --- SUCCESS ---
+    log_event(
+        question=question,
+        status="ok",
+        refusal_reason="none",
+        num_sources=len(results),
+        top_similarity=best_score,
+        source_types=source_types,
+        model=MODEL,
+    )
+
     return {
         "answer": answer_text,
         "sources": results,
@@ -112,16 +175,9 @@ def respond_to_question(question, k=TOP_K):
 
 
 # ----------------------------
-# Local test (dev only)
+# Local dev test
 # ----------------------------
 if __name__ == "__main__":
-    q = "What does Islam say about patience?"
+    q = "What does Islam say about prayer?"
     out = respond_to_question(q)
-
-    print("\nANSWER:\n")
     print(out["answer"])
-
-    if out["sources"]:
-        print("\nSOURCES:\n")
-        for r in out["sources"]:
-            print(r)
