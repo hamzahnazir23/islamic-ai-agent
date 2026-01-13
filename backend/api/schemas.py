@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 
 class QuestionRequest(BaseModel):
@@ -14,7 +14,7 @@ class Source(BaseModel):
 
 
 class AnswerResponse(BaseModel):
-    status: str                    # "ok" | "refusal"
+    status: Literal["ok", "refusal"]
     answer: Optional[str] = None
     sources: Optional[List[Source]] = None
     message: Optional[str] = None
