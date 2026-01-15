@@ -1,9 +1,15 @@
-from pydantic import BaseModel
-from typing import List, Optional, Literal
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
+
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
 
 
 class QuestionRequest(BaseModel):
     question: str
+    history: List[ChatMessage] = Field(default_factory=list)
 
 
 class Source(BaseModel):
@@ -14,7 +20,7 @@ class Source(BaseModel):
 
 
 class AnswerResponse(BaseModel):
-    status: Literal["ok", "refusal"]
-    answer: Optional[str] = None
-    sources: Optional[List[Source]] = None
-    message: Optional[str] = None
+    status: str
+    answer: Optional[str]
+    sources: List[Source]
+    message: Optional[str]

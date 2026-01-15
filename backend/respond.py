@@ -1,7 +1,9 @@
 import os
-from backend.search import semantic_search
-from backend.logger import log_event
+from typing import List, Dict
 from openai import OpenAI
+
+from search import semantic_search
+from logger import log_event
 
 # ----------------------------
 # CONFIG
@@ -14,10 +16,12 @@ TOP_K = 5
 SIMILARITY_THRESHOLD = 1.10
 MIN_SOURCES = 1
 
-# Explicit concept allowlist (Phase 5 MVP)
+# Broad Islamic concept coverage
 TERM_MAP = {
-    "patience": ["patience", "sabr"],
-    "prayer": ["prayer", "salah", "salat"],
+    "worship": ["prayer", "salah", "salat", "wudu", "fasting", "zakat", "hajj"],
+    "belief": ["allah", "god", "tawhid", "iman", "faith"],
+    "ethics": ["patience", "sabr", "honesty", "justice", "kindness"],
+    "daily_life": ["halal", "haram", "food", "marriage", "family"],
 }
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -27,15 +31,8 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # ----------------------------
 
 def load_system_prompt():
-    with open("backend/prompt/system_prompt.txt", "r", encoding="utf-8") as f:
+    with open("prompt/system_prompt.txt", "r", encoding="utf-8") as f:
         return f.read()
-
-
-def refusal_response():
-    return {
-        "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
-        "sources": [],
-    }
 
 
 def detect_concept(question: str):
@@ -46,8 +43,49 @@ def detect_concept(question: str):
     return None
 
 
-def extract_source_types(results):
-    return sorted({r[0] for r in results})
+def refusal_response():
+    return {
+        "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
+        "sources": [],
+    }
+
+
+def generate_general_islamic_answer(question: str, history: List[Dict]):
+    """
+    Safe fallback when sources are missing or weak.
+    NO fabricated citations.
+    Uses history ONLY for conversational continuity.
+    """
+    system_prompt = """
+You are MuftiGPT, a conservative Islamic AI assistant.
+
+Rules:
+- Do NOT fabricate Qur’an verses or Hadith.
+- Do NOT imply citations when none are provided.
+- Speak generally and cautiously.
+- Do NOT issue rulings or fatwas.
+"""
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Inject prior conversation (context only)
+    for msg in history[-6:]:
+        messages.append({
+            "role": msg["role"],
+            "content": msg["content"]
+        })
+
+    messages.append({
+        "role": "user",
+        "content": question
+    })
+
+    response = client.responses.create(
+        model=MODEL,
+        input=messages,
+    )
+
+    return response.output_text.strip()
 
 
 def format_sources(results):
@@ -65,10 +103,11 @@ def format_sources(results):
             similarity,
         ) = r
 
-        if source_type == "quran":
-            reference = f"Qur’an {chapter_number}:{verse_or_hadith_number}"
-        else:
-            reference = f"{collection} {verse_or_hadith_number}"
+        reference = (
+            f"Qur’an {chapter_number}:{verse_or_hadith_number}"
+            if source_type == "quran"
+            else f"{collection} {verse_or_hadith_number}"
+        )
 
         formatted.append({
             "source_type": source_type,
@@ -80,9 +119,9 @@ def format_sources(results):
     return formatted
 
 
-def build_prompt(question, results):
+def build_prompt(question: str, results, history: List[Dict]):
     system_prompt = load_system_prompt()
-    context_blocks = []
+    blocks = []
 
     for r in results:
         (
@@ -96,140 +135,96 @@ def build_prompt(question, results):
             _,
         ) = r
 
-        if source_type == "quran":
-            label = f"[Qur’an {chapter_number}:{verse_or_hadith_number}]"
-        else:
-            label = f"[{collection} | {book_name} | {chapter_name} | Hadith {verse_or_hadith_number}]"
+        label = (
+            f"[Qur’an {chapter_number}:{verse_or_hadith_number}]"
+            if source_type == "quran"
+            else f"[{collection} | Hadith {verse_or_hadith_number}]"
+        )
 
-        context_blocks.append(f"{label}\n{text_en}")
+        blocks.append(f"{label}\n{text_en}")
 
-    context = "\n\n".join(context_blocks)
+    context = "\n\n".join(blocks)
 
-    return f"""{system_prompt}
+    messages = [
+        {"role": "system", "content": system_prompt},
+    ]
 
-Question:
+    # Conversation history (context only, not evidence)
+    for msg in history[-6:]:
+        messages.append({
+            "role": msg["role"],
+            "content": msg["content"]
+        })
+
+    messages.append({
+        "role": "user",
+        "content": f"""Question:
 {question}
 
 Sources:
 {context}
 
-Answer:
-"""
+Answer:"""
+    })
+
+    return messages
 
 
 # ----------------------------
 # CORE FUNCTION
 # ----------------------------
 
-def respond_to_question(question: str, k: int = TOP_K):
-
-    print("QUESTION RECEIVED:", question)
-
-    # --- CONCEPT GATE ---
+def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
     concept = detect_concept(question)
-    print("DETECTED CONCEPT:", concept)
 
+    # Unsupported concept → GENERAL answer
     if concept is None:
-        log_event(
-            question=question,
-            status="refusal",
-            refusal_reason="unsupported_concept",
-            num_sources=0,
-            top_similarity=None,
-            source_types=[],
-            model=MODEL,
-        )
-        return refusal_response()
+        log_event(question, "general", "unsupported_concept")
+        return {
+            "answer": generate_general_islamic_answer(question, history),
+            "sources": [],
+        }
 
-    # --- RETRIEVAL ---
+    # Retrieval
     results = semantic_search(question, k)
 
     if not results:
-        log_event(
-            question=question,
-            status="refusal",
-            refusal_reason="no_results",
-            num_sources=0,
-            top_similarity=None,
-            source_types=[],
-            model=MODEL,
-        )
-        return refusal_response()
+        log_event(question, "general", "no_results")
+        return {
+            "answer": generate_general_islamic_answer(question, history),
+            "sources": [],
+        }
 
     best_distance = results[0][-1]
-    print("BEST COSINE DISTANCE:", best_distance)
 
-    source_types = extract_source_types(results)
+    # Weak evidence → GENERAL answer
+    if len(results) < MIN_SOURCES or best_distance > SIMILARITY_THRESHOLD:
+        log_event(question, "general", "weak_evidence")
+        return {
+            "answer": generate_general_islamic_answer(question, history),
+            "sources": [],
+        }
 
-    # --- MINIMUM EVIDENCE ---
-    if len(results) < MIN_SOURCES:
-        log_event(
-            question=question,
-            status="refusal",
-            refusal_reason="insufficient_sources",
-            num_sources=len(results),
-            top_similarity=best_distance,
-            source_types=source_types,
-            model=MODEL,
-        )
-        return refusal_response()
-
-    # --- SEMANTIC RELEVANCE ---
-    if best_distance > SIMILARITY_THRESHOLD:
-        log_event(
-            question=question,
-            status="refusal",
-            refusal_reason="weak_semantic_match",
-            num_sources=len(results),
-            top_similarity=best_distance,
-            source_types=source_types,
-            model=MODEL,
-        )
-        return refusal_response()
-
-    # --- BUILD PROMPT ---
-    prompt = build_prompt(question, results)
+    # Strong evidence → CITED answer
+    messages = build_prompt(question, results, history)
 
     response = client.responses.create(
         model=MODEL,
-        input=prompt,
+        input=messages,
     )
 
     answer_text = response.output_text.strip()
 
     if not answer_text:
-        log_event(
-            question=question,
-            status="refusal",
-            refusal_reason="empty_model_output",
-            num_sources=len(results),
-            top_similarity=best_distance,
-            source_types=source_types,
-            model=MODEL,
-        )
-        return refusal_response()
+        log_event(question, "general", "empty_model_output")
+        return {
+            "answer": generate_general_islamic_answer(question, history),
+            "sources": [],
+        }
 
-    # --- SUCCESS ---
-    log_event(
-        question=question,
-        status="ok",
-        refusal_reason="none",
-        num_sources=len(results),
-        top_similarity=best_distance,
-        source_types=source_types,
-        model=MODEL,
-    )
+    log_event(question, "ok", "cited_answer")
 
     return {
         "answer": answer_text,
         "sources": format_sources(results),
     }
-
-
-# ----------------------------
-# LOCAL TEST
-# ----------------------------
-
-if __name__ == "__main__":
-    q = "What does Islam say about prayer?"
-    print(respond_to_question(q))
