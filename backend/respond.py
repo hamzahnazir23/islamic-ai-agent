@@ -12,17 +12,38 @@ from logger import log_event
 MODEL = "gpt-4.1-mini"
 TOP_K = 5
 
-# Cosine distance: lower = better
-SIMILARITY_THRESHOLD = 1.10
+SIMILARITY_THRESHOLD = 1.25
 MIN_SOURCES = 1
 
-# Broad Islamic concept coverage
 TERM_MAP = {
     "worship": ["prayer", "salah", "salat", "wudu", "fasting", "zakat", "hajj"],
     "belief": ["allah", "god", "tawhid", "iman", "faith"],
     "ethics": ["patience", "sabr", "honesty", "justice", "kindness"],
     "daily_life": ["halal", "haram", "food", "marriage", "family"],
 }
+
+NON_SUNNI_TERMS = [
+    "shia", "shi'a", "rafidi",
+    "ahmadi", "qadiani",
+    "ismaili", "zaidi",
+    "twelver", "imamate",
+    "wilayat", "ghaibat",
+    "twelve imams",
+    "imams are infallible",
+]
+
+QUOTE_TRIGGERS = [
+    "what does the quran say",
+    "quran say",
+    "hadith say",
+    "which verse",
+    "which ayah",
+    "specific hadith",
+    "show me",
+    "give me",
+    "cite",
+    "source",
+]
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -35,6 +56,11 @@ def load_system_prompt():
         return f.read()
 
 
+def contains_non_sunni_terms(question: str) -> bool:
+    q = question.lower()
+    return any(term in q for term in NON_SUNNI_TERMS)
+
+
 def detect_concept(question: str):
     q = question.lower()
     for concept, terms in TERM_MAP.items():
@@ -43,54 +69,26 @@ def detect_concept(question: str):
     return None
 
 
-def refusal_response():
-    return {
-        "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
-        "sources": [],
-    }
+def is_quote_request(question: str) -> bool:
+    q = question.lower()
+    return any(trigger in q for trigger in QUOTE_TRIGGERS)
 
 
-def generate_general_islamic_answer(question: str, history: List[Dict]):
+# ✅ NEW (ONLY ADDITION)
+def resolve_retrieval_question(question: str, history: List[Dict]) -> str:
     """
-    Safe fallback when sources are missing or weak.
-    NO fabricated citations.
-    Uses history ONLY for conversational continuity.
+    If the user asks for sources / verses, reuse the last
+    substantive user question for retrieval.
     """
-    system_prompt = """
-You are MuftiGPT, a conservative Islamic AI assistant.
-
-Rules:
-- Do NOT fabricate Qur’an verses or Hadith.
-- Do NOT imply citations when none are provided.
-- Speak generally and cautiously.
-- Do NOT issue rulings or fatwas.
-"""
-
-    messages = [{"role": "system", "content": system_prompt}]
-
-    # Inject prior conversation (context only)
-    for msg in history[-6:]:
-        messages.append({
-            "role": msg["role"],
-            "content": msg["content"]
-        })
-
-    messages.append({
-        "role": "user",
-        "content": question
-    })
-
-    response = client.responses.create(
-        model=MODEL,
-        input=messages,
-    )
-
-    return response.output_text.strip()
+    if is_quote_request(question):
+        for msg in reversed(history):
+            if msg["role"] == "user":
+                return msg["content"]
+    return question
 
 
 def format_sources(results):
     formatted = []
-
     for r in results:
         (
             source_type,
@@ -119,6 +117,32 @@ def format_sources(results):
     return formatted
 
 
+def generate_general_islamic_answer(question: str, history: List[Dict]) -> str:
+    system_prompt = """
+You are MuftiGPT, a Sunni Islamic AI assistant (Ahl al-Sunnah wal-Jama‘ah).
+
+Rules:
+- Do NOT imply citations unless sources are provided.
+- Speak generally and cautiously.
+- Do NOT issue rulings or fatwas.
+- Do NOT reference non-Sunni beliefs.
+"""
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    for msg in history[-6:]:
+        messages.append(msg)
+
+    messages.append({"role": "user", "content": question})
+
+    response = client.responses.create(
+        model=MODEL,
+        input=messages,
+    )
+
+    return response.output_text.strip()
+
+
 def build_prompt(question: str, results, history: List[Dict]):
     system_prompt = load_system_prompt()
     blocks = []
@@ -145,27 +169,26 @@ def build_prompt(question: str, results, history: List[Dict]):
 
     context = "\n\n".join(blocks)
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-    ]
+    messages = [{"role": "system", "content": system_prompt}]
 
-    # Conversation history (context only, not evidence)
     for msg in history[-6:]:
-        messages.append({
-            "role": msg["role"],
-            "content": msg["content"]
-        })
+        messages.append(msg)
 
     messages.append({
-        "role": "user",
-        "content": f"""Question:
+    "role": "user",
+    "content": f"""
+Using ONLY the sources below, respond in a calm, conversational tone.
+Use short sentences.
+Do not write a paragraph.
+Stop once the sources are explained.
+
+Question:
 {question}
 
 Sources:
 {context}
-
-Answer:"""
-    })
+"""
+})
 
     return messages
 
@@ -175,38 +198,45 @@ Answer:"""
 # ----------------------------
 
 def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
-    concept = detect_concept(question)
 
-    # Unsupported concept → GENERAL answer
-    if concept is None:
-        log_event(question, "general", "unsupported_concept")
+    # 🚫 Non-Sunni hard block
+    if contains_non_sunni_terms(question):
+        log_event(question, "refusal", "non_sunni_request")
         return {
-            "answer": generate_general_islamic_answer(question, history),
+            "status": "refusal",
+            "answer": "MuftiGPT answers only according to Sunni Islam (Ahl al-Sunnah wal-Jama‘ah).",
             "sources": [],
+            "message": None,
         }
 
-    # Retrieval
-    results = semantic_search(question, k)
+    quote_request = is_quote_request(question)
 
+    # 🔍 Always resolve retrieval target FIRST
+    retrieval_question = resolve_retrieval_question(question, history)
+
+    # 🔎 Always attempt retrieval
+    results = semantic_search(retrieval_question, k)
+
+    # ❌ No sources found
     if not results:
-        log_event(question, "general", "no_results")
+        if quote_request:
+            log_event(question, "refusal", "quote_no_sources")
+            return {
+                "status": "refusal",
+                "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
+                "sources": [],
+                "message": None,
+            }
+
         return {
+            "status": "general",
             "answer": generate_general_islamic_answer(question, history),
             "sources": [],
+            "message": None,
         }
 
-    best_distance = results[0][-1]
-
-    # Weak evidence → GENERAL answer
-    if len(results) < MIN_SOURCES or best_distance > SIMILARITY_THRESHOLD:
-        log_event(question, "general", "weak_evidence")
-        return {
-            "answer": generate_general_islamic_answer(question, history),
-            "sources": [],
-        }
-
-    # Strong evidence → CITED answer
-    messages = build_prompt(question, results, history)
+    # 🟢 FORCED CITED PATH FOR QUOTE REQUESTS
+    messages = build_prompt(retrieval_question, results, history)
 
     response = client.responses.create(
         model=MODEL,
@@ -216,15 +246,16 @@ def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
     answer_text = response.output_text.strip()
 
     if not answer_text:
-        log_event(question, "general", "empty_model_output")
         return {
-            "answer": generate_general_islamic_answer(question, history),
+            "status": "refusal",
+            "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
             "sources": [],
+            "message": None,
         }
 
-    log_event(question, "ok", "cited_answer")
-
     return {
+        "status": "ok",
         "answer": answer_text,
         "sources": format_sources(results),
+        "message": None,
     }

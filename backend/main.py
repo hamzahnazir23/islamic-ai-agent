@@ -22,27 +22,32 @@ app.add_middleware(
 @app.post("/ask", response_model=AnswerResponse)
 def ask_question(payload: QuestionRequest):
     question = payload.question.strip()
-    history = payload.history  # ✅ NEW
+    history = [m.dict() for m in payload.history]
 
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    # ✅ pass history through
-    result = respond_to_question(
-        question=question,
-        history=history,
-    )
+    result = respond_to_question(question, history)
 
-    # REFUSAL
-    if not result["sources"]:
+    # 🚫 REFUSAL
+    if result["sources"] == [] and "only according to Sunni Islam" in result["answer"]:
         return {
             "status": "refusal",
-            "answer": None,
+            "answer": result["answer"],
             "sources": [],
-            "message": result["answer"],
+            "message": None,
         }
 
-    # SUCCESS
+    # 💬 GENERAL ANSWER (no sources)
+    if result["sources"] == []:
+        return {
+            "status": "general",
+            "answer": result["answer"],
+            "sources": [],
+            "message": None,
+        }
+
+    # 📚 CITED ANSWER
     return {
         "status": "ok",
         "answer": result["answer"],
