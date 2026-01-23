@@ -199,7 +199,7 @@ Sources:
 
 def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
 
-    # 🚫 Non-Sunni hard block
+    # 🚫 Hard block: non-Sunni content ONLY
     if contains_non_sunni_terms(question):
         log_event(question, "refusal", "non_sunni_request")
         return {
@@ -211,23 +211,12 @@ def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
 
     quote_request = is_quote_request(question)
 
-    # 🔍 Always resolve retrieval target FIRST
+    # ✅ Resolve retrieval target ONCE
     retrieval_question = resolve_retrieval_question(question, history)
-
-    # 🔎 Always attempt retrieval
     results = semantic_search(retrieval_question, k)
 
-    # ❌ No sources found
+    # 🔹 If NO sources found → true general answer
     if not results:
-        if quote_request:
-            log_event(question, "refusal", "quote_no_sources")
-            return {
-                "status": "refusal",
-                "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
-                "sources": [],
-                "message": None,
-            }
-
         return {
             "status": "general",
             "answer": generate_general_islamic_answer(question, history),
@@ -235,7 +224,7 @@ def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
             "message": None,
         }
 
-    # 🟢 FORCED CITED PATH FOR QUOTE REQUESTS
+    # 🔹 Sources FOUND → ALWAYS cite them
     messages = build_prompt(retrieval_question, results, history)
 
     response = client.responses.create(
@@ -245,14 +234,16 @@ def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
 
     answer_text = response.output_text.strip()
 
+    # 🔹 If model fails, still return sources
     if not answer_text:
         return {
-            "status": "refusal",
-            "answer": "Based on the available sources, there is insufficient evidence to provide a reliable answer.",
-            "sources": [],
+            "status": "ok",
+            "answer": generate_general_islamic_answer(question, history),
+            "sources": format_sources(results),
             "message": None,
         }
 
+    # ✅ SUCCESS: cited answer
     return {
         "status": "ok",
         "answer": answer_text,

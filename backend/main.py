@@ -5,7 +5,7 @@ from api.schemas import QuestionRequest, AnswerResponse
 from respond import respond_to_question
 
 app = FastAPI(
-    title="MuftiGPT API",
+    title="AALIM API",
     version="1.0.0",
 )
 
@@ -38,14 +38,14 @@ def ask_question(payload: QuestionRequest):
             "message": None,
         }
 
-    # 💬 GENERAL ANSWER (no sources)
-    if result["sources"] == []:
+    # 💬 GENERAL ANSWER (may still have retrievable sources)
+    if not result["sources"]:
         return {
             "status": "general",
             "answer": result["answer"],
-            "sources": [],
+            "sources": result.get("sources", []),
             "message": None,
-        }
+    }
 
     # 📚 CITED ANSWER
     return {
