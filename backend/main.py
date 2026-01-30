@@ -23,11 +23,11 @@ app.add_middleware(
 def ask_question(payload: QuestionRequest):
     question = payload.question.strip()
     history = [m.dict() for m in payload.history]
-
+    language = payload.language or "en"
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
-    result = respond_to_question(question, history)
+    result = respond_to_question(question, history, language)
 
     # 🚫 REFUSAL
     if result["sources"] == [] and "only according to Sunni Islam" in result["answer"]:

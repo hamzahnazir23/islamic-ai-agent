@@ -4,7 +4,8 @@ import Image from "next/image";
 import { useState, useEffect } from "react";
 import { Playfair_Display } from "next/font/google";
 import { useRouter } from "next/navigation";
-
+import { SquarePen, Home as LucideHome, Send } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 const playfair = Playfair_Display({
   subsets: ["latin"],
   weight: ["600", "700"],
@@ -31,13 +32,55 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
   const router = useRouter();
-
+  const [language, setLanguage] = useState<"en" | "ar" | "ur">("en");
+  const LanguageButtons = () => (
+    <div className="flex justify-center gap-2 mt-3">
+      <button
+        onClick={() => setLanguage("en")}
+        className={`px-3 py-1 rounded-full text-sm font-medium ${
+          language === "en"
+            ? "bg-emerald-900 text-white"
+            : "bg-[#ebe6dc] text-gray-700"
+        }`}
+      >
+        English
+      </button>
+  
+      <button
+        onClick={() => setLanguage("ar")}
+        className={`px-3 py-1 rounded-full text-sm font-medium ${
+          language === "ar"
+            ? "bg-emerald-900 text-white"
+            : "bg-[#ebe6dc] text-gray-700"
+        }`}
+      >
+        Arabic
+      </button>
+  
+      <button
+        onClick={() => setLanguage("ur")}
+        className={`px-3 py-1 rounded-full text-sm font-medium ${
+          language === "ur"
+            ? "bg-emerald-900 text-white"
+            : "bg-[#ebe6dc] text-gray-700"
+        }`}
+      >
+        Urdu
+      </button>
+    </div>
+  );
   useEffect(() => {
     const seen = localStorage.getItem("aalim_intro_seen");
     if (!seen) {
       setShowIntro(true);
     }
   }, []);
+ 
+  function startNewChat() {
+    setMessages([]);
+    setInput("");
+    setShowSourcesFor(null);
+  }
 
   async function sendMessage() {
     if (!input.trim() || loading) return;
@@ -60,7 +103,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: userMessage.content,
-          history,
+          history,language
         }),
       });
 
@@ -117,14 +160,16 @@ export default function Home() {
               Welcome to Aalim
             </h1>
   
-            <p className="text-sm text-gray-700 mb-6 leading-relaxed">
+            <p className="text-sm text-gray-700 mb-4 leading-relaxed">
               Aalim is an AI companion for Muslims, grounded in the Qur’an and
               authentic Sunnah. Ask questions, explore knowledge, and learn your
               deen with clarity and confidence.
             </p>
-  
+            <div className="mb-5">
+              <LanguageButtons />
+            </div>
             <button
-              className="w-full rounded-full bg-emerald-800 py-3 text-white text-sm font-medium hover:bg-emerald-900"
+              className="w-full rounded-full bg-emerald-800 py-3 text-white text-sm font-medium hover:bg-emerald-900 transition"
               onClick={() => {
                 localStorage.setItem("aalim_intro_seen", "true");
                 setShowIntro(false);
@@ -138,31 +183,65 @@ export default function Home() {
   
       <div className="flex h-screen bg-[#f5f1e8] text-gray-900">
         {/* ASIDE */}
-        <aside className="w-64 border-r border-[#e6dfd3] bg-[#f9f6ef] p-4 hidden md:block">
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center justify-between w-full font-semibold mb-4 text-emerald-900"
-          >
-            <span>Previous Prompts</span>
-            <span className="text-sm">{showHistory ? "−" : "+"}</span>
-          </button>
-  
-          {showHistory && (
-            <div className="space-y-2">
-              {messages
-                .filter((m) => m.role === "user")
-                .slice(-5)
-                .map((m, i) => (
-                  <div
-                    key={i}
-                    className="text-xs px-3 py-2 rounded-full bg-[#ebe6dc] text-gray-700 truncate"
-                  >
-                    {m.content}
-                  </div>
-                ))}
+        <aside className="w-64 border-r border-[#e6dfd3] bg-[#f9f6ef] p-4 hidden md:flex flex-col justify-between">
+
+  {/* TOP SECTION */}
+  <div>
+    <button
+      onClick={() => setShowHistory(!showHistory)}
+      className="flex items-center justify-between w-full font-semibold mb-4 text-emerald-900 text-lg"
+    >
+      <span>Previous Prompts</span>
+      <PanelLeft
+      className={`w-6 h-6 transition-transform ${
+      showHistory ? "rotate-180" : ""
+    }`}
+  />
+    </button>
+
+    {showHistory && (
+      <div className="space-y-2">
+        {messages
+          .filter((m) => m.role === "user")
+          .slice(-5)
+          .map((m, i) => (
+            <div
+              key={i}
+              className="text-xs px-3 py-2 rounded-full bg-[#ebe6dc] text-gray-700 truncate"
+            >
+              {m.content}
             </div>
-          )}
-        </aside>
+          ))}
+      </div>
+    )}
+  </div>
+
+  {/* BOTTOM ACTION BUTTONS */}
+  <div className="flex gap-2 pt-4 border-t border-[#e6dfd3]">
+    {/* New Chat */}
+    <button
+      onClick={startNewChat}
+      title="New chat"
+      className="p-2 rounded-lg hover:bg-[#ebe6dc] transition"
+    >
+      <SquarePen className="w-6 h-6 text-emerald-900" />
+    </button>
+
+    {/* Return Home (icon only) */}
+    <button
+      onClick={() => {
+        setMessages([]);
+        setInput("");
+        setShowIntro(true);
+      }}
+      title="Return to home"
+      className="p-2 rounded-lg hover:bg-[#ebe6dc] transition"
+    >
+      <LucideHome className="w-6 h-6 text-emerald-900" />
+    </button>
+  </div>
+
+</aside>
   
         {/* MAIN */}
         <main className="flex flex-col flex-1">
@@ -174,7 +253,7 @@ export default function Home() {
                   onClick={() => {
                     localStorage.removeItem("aalim_intro_seen");
                     setShowIntro(true);
-                  }}
+                  }} 
                 >
                 <Image
                   src="/aalimheader.png"
@@ -191,6 +270,7 @@ export default function Home() {
                 <br />
                 Learn your deen with clarity and confidence.
               </p>
+              <LanguageButtons />
             </div>
           </header>
   
@@ -232,8 +312,8 @@ export default function Home() {
                     <Image
                       src="/AALIM.png"
                       alt="Aalim"
-                      width={100}
-                      height={100}
+                      width={65}
+                      height={65}
                       className="mt-1 opacity-90"
                     />
                   )}
@@ -330,10 +410,10 @@ export default function Home() {
               />
               <button
                 onClick={sendMessage}
-                disabled={loading}
-                className="rounded-full bg-emerald-800 px-6 py-3 text-sm text-white"
-              >
-                Send
+                className="flex items-center justify-center rounded-full bg-emerald-800 w-14 h-14 hover:bg-emerald-900 transition"
+                aria-label="Send message"
+              > 
+              <Send className="w-6 h-6 text-white" />
               </button>
             </div>
           </div>

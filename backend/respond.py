@@ -119,7 +119,7 @@ def format_sources(results):
 
 def generate_general_islamic_answer(question: str, history: List[Dict]) -> str:
     system_prompt = """
-You are MuftiGPT, a Sunni Islamic AI assistant (Ahl al-Sunnah wal-Jama‘ah).
+You are Aalim, a Sunni Islamic AI assistant (Ahl al-Sunnah wal-Jama‘ah).
 
 Rules:
 - Do NOT imply citations unless sources are provided.
@@ -196,15 +196,39 @@ Sources:
 # ----------------------------
 # CORE FUNCTION
 # ----------------------------
+# imports
+from typing import List
 
-def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
+# ✅ ADD THIS HERE
+def translate_answer(answer: str, language: str) -> str:
+    if language == "en":
+        return answer
 
+    prompt = f"""
+Translate the following Islamic answer into {language}.
+Preserve meaning exactly. Do not add commentary.
+
+ANSWER:
+{answer}
+"""
+
+    response = client.responses.create(
+        model=MODEL,
+        input=prompt,
+    )
+
+    return response.output_text.strip()
+
+
+
+def respond_to_question(question: str, history: List[Dict],language: str = "en", k: int = TOP_K ) -> Dict:
+    print("🔥 LANGUAGE RECEIVED:", language)
     # 🚫 Hard block: non-Sunni content ONLY
     if contains_non_sunni_terms(question):
         log_event(question, "refusal", "non_sunni_request")
         return {
             "status": "refusal",
-            "answer": "MuftiGPT answers only according to Sunni Islam (Ahl al-Sunnah wal-Jama‘ah).",
+            "answer": "Aalim answers only according to Sunni Islam (Ahl al-Sunnah wal-Jama‘ah).",
             "sources": [],
             "message": None,
         }
@@ -217,9 +241,11 @@ def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
 
     # 🔹 If NO sources found → true general answer
     if not results:
+        answer_text = generate_general_islamic_answer(question, history)
+        answer_text = translate_answer(answer_text, language)
         return {
             "status": "general",
-            "answer": generate_general_islamic_answer(question, history),
+            "answer": answer_text,
             "sources": [],
             "message": None,
         }
@@ -233,7 +259,7 @@ def respond_to_question(question: str, history: List[Dict], k: int = TOP_K):
     )
 
     answer_text = response.output_text.strip()
-
+    answer_text = translate_answer(answer_text, language)
     # 🔹 If model fails, still return sources
     if not answer_text:
         return {

@@ -10,7 +10,7 @@ class ChatMessage(BaseModel):
 class QuestionRequest(BaseModel):
     question: str
     history: List[ChatMessage] = Field(default_factory=list)
-
+    language: str = "en"
 
 class Source(BaseModel):
     source_type: str
