@@ -5,6 +5,11 @@ from openai import OpenAI
 from search import semantic_search
 from logger import log_event
 
+
+print("KEY REPR:", repr(os.getenv("OPENAI_API_KEY")))
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 # ----------------------------
 # CONFIG
 # ----------------------------
