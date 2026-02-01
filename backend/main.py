@@ -12,12 +12,14 @@ app = FastAPI(
 # CORS (Next.js)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://islamic-ai-agent-production.up.railway.app",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.post("/ask", response_model=AnswerResponse)
 def ask_question(payload: QuestionRequest):
