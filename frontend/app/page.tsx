@@ -74,6 +74,7 @@ export default function Home() {
     if (!seen) {
       setShowIntro(true);
     }
+    console.log("API URL:", process.env.NEXT_PUBLIC_API_URL);
   }, []);
  
   function startNewChat() {
