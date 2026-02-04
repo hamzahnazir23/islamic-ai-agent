@@ -32,6 +32,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [showIntro, setShowIntro] = useState(false);
   const router = useRouter();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [language, setLanguage] = useState<"en" | "ar" | "ur">("en");
   const LanguageButtons = () => (
     <div className="flex justify-center gap-2 mt-3">
@@ -142,8 +143,67 @@ export default function Home() {
       sendMessage();
     }, 0);
   }
-
+  const SidebarContent = () => (
+    <>
+      {/* TOP SECTION */}
+      <div>
+        <button
+          onClick={() => setShowHistory((prev) => !prev)}
+          className="flex items-center justify-between w-full font-semibold mb-4 text-emerald-900 text-lg"
+        >
+          <span>Previous Prompts</span>
+          <PanelLeft
+            className={`w-6 h-6 transition-transform ${
+              showHistory ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+  
+        {showHistory && (
+          <div className="space-y-2">
+            {messages
+              .filter((m) => m.role === "user")
+              .slice(-5)
+              .map((m, i) => (
+                <div
+                  key={i}
+                  className="text-xs px-3 py-2 rounded-full bg-[#ebe6dc] text-gray-700 truncate"
+                >
+                  {m.content}
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+  
+      {/* BOTTOM ACTION BUTTONS */}
+      <div className="flex gap-2 pt-4 border-t border-[#e6dfd3]">
+        <button
+          onClick={() => {
+            startNewChat();
+            setMobileSidebarOpen(false);
+        }}
+        className="p-2 rounded-lg hover:bg-[#ebe6dc]"
+        >
+        <SquarePen className="w-6 h-6 text-emerald-900" />
+        </button>
+  
+        <button
+          onClick={() => {
+            setMessages([]);
+            setInput("");
+            setShowIntro(true);
+            setMobileSidebarOpen(false);
+          }}
+          className="p-2 rounded-lg hover:bg-[#ebe6dc]"
+        >
+          <LucideHome className="w-6 h-6 text-emerald-900" />
+        </button>
+      </div>
+    </>
+  );
   return (
+    
     <>
       {showIntro && (
         <div className="fixed inset-0 z-50 bg-[#f5f1e8] flex items-center justify-center">
@@ -181,72 +241,40 @@ export default function Home() {
           </div>
         </div>
       )}
-  
+      {mobileSidebarOpen && (
+      <div className="fixed inset-0 z-40 md:hidden">
+        {/* Dark overlay */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={() => setMobileSidebarOpen(false)}
+      />
+
+      {/* Sidebar drawer */}
+      <aside className="absolute left-0 top-0 h-full w-64 bg-[#f9f6ef] p-4 flex flex-col justify-between shadow-xl">
+        <SidebarContent />
+      </aside>
+    </div>
+  )}
       <div className="flex h-screen bg-[#f5f1e8] text-gray-900">
         {/* ASIDE */}
         <aside className="w-64 border-r border-[#e6dfd3] bg-[#f9f6ef] p-4 hidden md:flex flex-col justify-between">
 
-  {/* TOP SECTION */}
-  <div>
-    <button
-      onClick={() => setShowHistory(!showHistory)}
-      className="flex items-center justify-between w-full font-semibold mb-4 text-emerald-900 text-lg"
-    >
-      <span>Previous Prompts</span>
-      <PanelLeft
-      className={`w-6 h-6 transition-transform ${
-      showHistory ? "rotate-180" : ""
-    }`}
-  />
-    </button>
+      {/* TOP SECTION */}
+          <SidebarContent />
+      </aside>
 
-    {showHistory && (
-      <div className="space-y-2">
-        {messages
-          .filter((m) => m.role === "user")
-          .slice(-5)
-          .map((m, i) => (
-            <div
-              key={i}
-              className="text-xs px-3 py-2 rounded-full bg-[#ebe6dc] text-gray-700 truncate"
-            >
-              {m.content}
-            </div>
-          ))}
-      </div>
-    )}
-  </div>
-
-  {/* BOTTOM ACTION BUTTONS */}
-  <div className="flex gap-2 pt-4 border-t border-[#e6dfd3]">
-    {/* New Chat */}
-    <button
-      onClick={startNewChat}
-      title="New chat"
-      className="p-2 rounded-lg hover:bg-[#ebe6dc] transition"
-    >
-      <SquarePen className="w-6 h-6 text-emerald-900" />
-    </button>
-
-    {/* Return Home (icon only) */}
-    <button
-      onClick={() => {
-        setMessages([]);
-        setInput("");
-        setShowIntro(true);
-      }}
-      title="Return to home"
-      className="p-2 rounded-lg hover:bg-[#ebe6dc] transition"
-    >
-      <LucideHome className="w-6 h-6 text-emerald-900" />
-    </button>
-  </div>
-
-</aside>
-  
         {/* MAIN */}
         <main className="flex flex-col flex-1">
           <header className="border-b border-[#e6dfd3] bg-[#f9f6ef] px-6 py-2">
+          <div className="absolute left-4 top-4 md:hidden">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+                className="p-2 rounded-lg hover:bg-[#ebe6dc]"
+                aria-label="Open menu"
+              >
+              <PanelLeft className="w-6 h-6 text-emerald-900" />
+            </button>
+          </div>
             <div className="flex flex-col items-center gap-1">
               <div className="flex items-center gap-3">
                 <div
