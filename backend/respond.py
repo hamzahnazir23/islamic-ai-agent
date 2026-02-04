@@ -6,9 +6,11 @@ from search import semantic_search
 from logger import log_event
 
 
-print("KEY REPR:", repr(os.getenv("OPENAI_API_KEY")))
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+raw_key = os.getenv("OPENAI_API_KEY")
+api_key = raw_key.strip() if raw_key else None
+
+client = OpenAI(api_key=api_key)
 
 # ----------------------------
 # CONFIG
