@@ -52,7 +52,6 @@ QUOTE_TRIGGERS = [
     "source",
 ]
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ----------------------------
 # HELPERS

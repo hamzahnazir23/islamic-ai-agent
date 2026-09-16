@@ -4,10 +4,10 @@ from psycopg2.extras import execute_batch
 from openai import OpenAI
 
 # ---- CONFIG ----
-DB_NAME = "islamic_ai"
-DB_USER = "hamzahnazir"
-DB_HOST = "localhost"
-DB_PORT = 5432
+DB_NAME = os.getenv("PGDATABASE", "islamic_ai")
+DB_USER = os.getenv("PGUSER", "hamzahnazir")
+DB_HOST = os.getenv("PGHOST", "localhost")
+DB_PORT = int(os.getenv("PGPORT", "5432"))
 
 EMBED_MODEL = "text-embedding-3-small"
 BATCH_SIZE = 100
@@ -17,9 +17,14 @@ VECTOR_DIM = 1536  # MUST match pgvector column
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def get_connection():
+    url = os.getenv("DATABASE_URL")
+    if url:
+        return psycopg2.connect(url)
+
     return psycopg2.connect(
         dbname=DB_NAME,
         user=DB_USER,
+        password=os.getenv("PGPASSWORD") or None,
         host=DB_HOST,
         port=DB_PORT,
     )
