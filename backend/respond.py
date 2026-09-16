@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List, Dict
 from openai import OpenAI
 
@@ -57,8 +58,13 @@ QUOTE_TRIGGERS = [
 # HELPERS
 # ----------------------------
 
+SYSTEM_PROMPT_PATH = Path(__file__).resolve().parent / "prompt" / "system_prompt.txt"
+
+
 def load_system_prompt():
-    with open("prompt/system_prompt.txt", "r", encoding="utf-8") as f:
+    # Resolved against this file, not the cwd, so the app starts from any
+    # working directory rather than only from backend/.
+    with open(SYSTEM_PROMPT_PATH, "r", encoding="utf-8") as f:
         return f.read()
 
 
