@@ -248,29 +248,6 @@ export default function Home() {
         className="absolute inset-0 bg-black/40"
         onClick={() => setMobileSidebarOpen(false)}
       />
-      {/* MOBILE SIDEBAR OVERLAY */}
-      {mobileSidebarOpen && (
-          <div className="fixed inset-0 z-50 md:hidden">
-         {/* Backdrop */}
-        <div
-        className="absolute inset-0 bg-black/30"
-        onClick={() => setMobileSidebarOpen(false)}
-        />
-
-      {/* Sidebar */}
-        <div className="relative w-64 h-full bg-[#f9f6ef] p-4 shadow-xl">
-          <SidebarContent />
-
-      {/* Close button */}
-          <button
-            onClick={() => setMobileSidebarOpen(false)}
-            className="absolute top-4 right-4 text-emerald-900"
-            aria-label="Close menu"
-          >
-      </button>
-    </div>
-  </div>
-)}
       {/* Sidebar drawer */}
       <aside className="absolute left-0 top-0 h-full w-64 bg-[#f9f6ef] p-4 flex flex-col justify-between shadow-xl">
         <SidebarContent />
@@ -290,7 +267,7 @@ export default function Home() {
           <header className="border-b border-[#e6dfd3] bg-[#f9f6ef] px-6 py-2">
           <div className="absolute left-4 top-4 md:hidden">
             <button
-              onClick={() => setMobileSidebarOpen(true)}
+              onClick={() => setMobileSidebarOpen(prev => !prev)}
                 className="p-2 rounded-lg hover:bg-[#ebe6dc]"
                 aria-label="Open menu"
               >
