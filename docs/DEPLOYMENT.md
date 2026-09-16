@@ -17,13 +17,21 @@ need it enabled explicitly.
 psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
-## 2. Apply the schema
+## 2. Apply the schema and migrations
+
+Run in order. Both are idempotent — safe to re-run on every deploy.
 
 ```bash
 psql "$DATABASE_URL" -f backend/db/schema.sql
+psql "$DATABASE_URL" -f backend/db/migrations/002_auth_and_chat.sql
 ```
 
-Idempotent — safe to re-run on every deploy.
+`schema.sql` creates the corpus tables (`sources`, `embeddings`).
+`002_auth_and_chat.sql` adds `users`, `sessions`, `conversations`, and
+`messages`. The migration touches no corpus data and performs no
+backfill: chat history predating it was never stored server-side, so
+there is nothing to assign and no existing conversation is given an
+owner.
 
 ## 3. Load and embed the corpus
 
@@ -60,6 +68,16 @@ most often wrong:
 - `TRUST_PROXY=true` on Railway. Left false, its proxy makes all traffic
   appear to come from one IP and every user shares a single rate-limit
   budget.
+
+Authentication adds two more that are easy to get wrong in production:
+
+- `COOKIE_SECURE=true` — without it the session cookie is sent over
+  plain http.
+- `COOKIE_SAMESITE` — `lax` only works when the frontend and API share a
+  site. A frontend on a different domain needs `none`, which browsers
+  accept only alongside `COOKIE_SECURE=true`. Wrong value here means
+  login appears to succeed and every subsequent request is a 401,
+  because the browser silently withholds the cookie.
 
 Start command, from `backend/`:
 

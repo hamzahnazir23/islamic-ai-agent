@@ -16,7 +16,14 @@ PER_DAY = int(os.getenv("RATE_LIMIT_PER_DAY", "200"))
 # rewrites it — off by default so it cannot be spoofed in local runs.
 TRUST_PROXY = os.getenv("TRUST_PROXY", "false").lower() == "true"
 
+# Login is brute-forceable in a way that /ask is not, so it gets its own
+# tighter budget keyed by IP *and* the email being tried: one attacker
+# cannot lock every account, and one victim's account cannot be hammered
+# from a single address.
+LOGIN_PER_15_MIN = int(os.getenv("LOGIN_RATE_LIMIT", "5"))
+
 MINUTE = 60
+QUARTER_HOUR = 900
 DAY = 86400
 
 _hits: Dict[str, Deque[float]] = defaultdict(deque)
@@ -74,3 +81,43 @@ def enforce_rate_limit(request: Request) -> None:
         if len(_hits) > 10_000:
             for key in [k for k, v in _hits.items() if not v]:
                 del _hits[key]
+
+
+_login_hits: Dict[str, Deque[float]] = defaultdict(deque)
+
+
+def enforce_login_rate_limit(request: Request, email: str) -> None:
+    """
+    Called from the login handler rather than as a dependency, because the
+    key depends on the request body.
+    """
+    now = time.time()
+    key = f"{client_ip(request)}|{email.strip().lower()}"
+
+    with _lock:
+        bucket = _login_hits[key]
+        while bucket and bucket[0] < now - QUARTER_HOUR:
+            bucket.popleft()
+
+        if len(bucket) >= LOGIN_PER_15_MIN:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts. Please try again later.",
+                headers={"Retry-After": str(QUARTER_HOUR)},
+            )
+
+        bucket.append(now)
+
+
+def clear_login_attempts(request: Request, email: str) -> None:
+    """A successful login forgives the failures that preceded it."""
+    key = f"{client_ip(request)}|{email.strip().lower()}"
+    with _lock:
+        _login_hits.pop(key, None)
+
+
+def _reset_all():
+    """Test helper: drop every counter between cases."""
+    with _lock:
+        _hits.clear()
+        _login_hits.clear()
