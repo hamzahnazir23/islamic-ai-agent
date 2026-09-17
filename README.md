@@ -57,6 +57,34 @@ Open http://localhost:3000.
 > `SameSite=Lax` cookie is sent; mixing the two hostnames makes every
 > authenticated request fail with 401.
 
+## Installing on a phone
+
+Aalim is a Progressive Web App. The service worker is registered for
+production builds only, so test it with `npm run build && npm start`
+rather than `npm run dev`.
+
+**iPhone / iPad (Safari)** — open the site, tap Share, then *Add to Home
+Screen*. Chrome and Firefox on iOS cannot install a PWA; iOS only allows
+it from Safari.
+
+**Android (Chrome)** — a install prompt usually appears; otherwise use
+the ⋮ menu and *Install app* / *Add to Home screen*.
+
+**Desktop (Chrome/Edge)** — an install icon appears in the address bar.
+
+Once installed it launches standalone, with no browser chrome. Offline,
+a fallback page explains that a connection is required: answers come
+from a server-side search over the corpus, and conversations are stored
+on the account, so neither works without a network.
+
+The service worker caches only the public shell (`/`, `/login`,
+`/signup`, the offline page) and static build assets. It never caches
+`/chat`, any authenticated API response, or chat history.
+
+**Note for production:** the app must be served over HTTPS for the
+service worker to register and for the app to be installable, and
+`COOKIE_SECURE=true` is required there for sessions.
+
 ## Tests
 
 ```bash
@@ -68,6 +96,23 @@ pytest
 The suite creates and drops its own `islamic_ai_test` database and stubs
 the model, so it needs no API key, no network, and never touches the
 development corpus.
+
+### Frontend (Playwright)
+
+These drive a real browser against a running stack, so start the backend
+and a production frontend build first, then:
+
+```bash
+cd frontend
+npm run test:mobile     # full flow at 8 viewports, 320px to desktop
+node tests/pwa-check.mjs        # manifest, icons, SW caching, offline
+node tests/scroll-behaviour.mjs # sticky scroll, composer visibility
+node tests/content-stress.mjs   # long text, Arabic RTL, code, tables
+```
+
+They register throwaway accounts and seed fixtures in the development
+database; the accounts can be removed with
+`DELETE FROM users WHERE email ~ '^(pw-|pwa-|stress-|scroll-)';`
 
 ## Documentation
 
