@@ -41,27 +41,28 @@ export default function Landing() {
   }, [loading, user, router]);
 
   return (
-    <div className="min-h-screen bg-[#f5f1e8] text-gray-900">
-      <header className="border-b border-[#e6dfd3] bg-[#f9f6ef]">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
+    <div className="min-app-shell bg-[#f5f1e8] text-gray-900">
+      <header className="pt-safe border-b border-[#e6dfd3] bg-[#f9f6ef]">
+        <div className="px-safe mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-5 sm:py-4">
           <Image
             src="/aalimheader.png"
             alt="Aalim"
             width={150}
             height={40}
             priority
-            className="h-auto w-[120px] sm:w-[150px]"
+            sizes="(max-width: 640px) 110px, 150px"
+            className="h-auto w-[110px] sm:w-[150px]"
           />
           <nav className="flex items-center gap-2">
             <Link
               href="/login"
-              className="rounded-full px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-[#ebe6dc]"
+              className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-medium text-emerald-900 hover:bg-[#ebe6dc] sm:px-4"
             >
               Log in
             </Link>
             <Link
               href="/signup"
-              className="rounded-full bg-emerald-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-900"
+              className="inline-flex min-h-11 items-center rounded-full bg-emerald-800 px-3.5 text-sm font-medium text-white transition hover:bg-emerald-900 sm:px-4"
             >
               Create account
             </Link>
@@ -69,18 +70,20 @@ export default function Landing() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-5">
-        <section className="flex flex-col items-center py-14 text-center sm:py-20">
+      <main className="px-safe mx-auto max-w-5xl px-4 sm:px-5">
+        <section className="flex flex-col items-center py-10 text-center sm:py-20">
           <Image
             src="/AALIM.png"
             alt=""
             width={96}
             height={96}
-            className="mb-6 h-20 w-20 opacity-90 sm:h-24 sm:w-24"
+            priority
+            sizes="96px"
+            className="mb-5 h-16 w-16 opacity-90 sm:mb-6 sm:h-24 sm:w-24"
           />
 
           <h1
-            className={`${playfair.className} max-w-2xl text-3xl leading-tight font-bold text-emerald-950 sm:text-5xl`}
+            className={`${playfair.className} max-w-2xl text-[1.75rem] leading-tight font-bold text-emerald-950 sm:text-5xl`}
           >
             Learn your deen with clarity and confidence
           </h1>
@@ -94,13 +97,13 @@ export default function Landing() {
           <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <Link
               href="/signup"
-              className="rounded-full bg-emerald-800 px-7 py-3 text-sm font-medium text-white transition hover:bg-emerald-900"
+              className="inline-flex min-h-12 items-center justify-center rounded-full bg-emerald-800 px-7 text-sm font-medium text-white transition hover:bg-emerald-900"
             >
               Create account
             </Link>
             <Link
               href="/login"
-              className="rounded-full border border-[#e6dfd3] bg-[#f9f6ef] px-7 py-3 text-sm font-medium text-emerald-900 transition hover:bg-[#ebe6dc]"
+              className="inline-flex min-h-12 items-center justify-center rounded-full border border-[#e6dfd3] bg-[#f9f6ef] px-7 text-sm font-medium text-emerald-900 transition hover:bg-[#ebe6dc]"
             >
               Log in
             </Link>
@@ -111,7 +114,7 @@ export default function Landing() {
           </p>
         </section>
 
-        <section className="grid gap-4 pb-16 sm:grid-cols-3">
+        <section className="grid gap-3 pb-10 sm:grid-cols-3 sm:gap-4 sm:pb-16">
           {FEATURES.map(({ icon: Icon, title, body }) => (
             <div
               key={title}
@@ -135,7 +138,7 @@ export default function Landing() {
         </section>
       </main>
 
-      <footer className="border-t border-[#e6dfd3] bg-[#f9f6ef] py-6">
+      <footer className="pb-safe border-t border-[#e6dfd3] bg-[#f9f6ef] py-6">
         <p className="text-center text-xs text-gray-500">
           Aalim — grounded in Qur’an and authentic Hadith.
         </p>

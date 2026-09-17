@@ -68,8 +68,8 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f5f1e8] text-gray-900">
-      <header className="border-b border-[#e6dfd3] bg-[#f9f6ef] px-5 py-4">
+    <div className="min-app-shell flex flex-col bg-[#f5f1e8] text-gray-900">
+      <header className="pt-safe px-safe border-b border-[#e6dfd3] bg-[#f9f6ef] px-4 py-3 sm:px-5 sm:py-4">
         <Link href="/" className="inline-block">
           <Image
             src="/aalimheader.png"
@@ -77,12 +77,13 @@ export default function AuthForm({ mode }: { mode: Mode }) {
             width={140}
             height={38}
             priority
-            className="h-auto w-[130px]"
+            sizes="130px"
+            className="h-auto w-[120px] sm:w-[130px]"
           />
         </Link>
       </header>
 
-      <main className="flex flex-1 items-center justify-center px-5 py-10">
+      <main className="px-safe pb-safe flex flex-1 items-center justify-center px-4 py-8 sm:px-5 sm:py-10">
         <div className="w-full max-w-sm">
           <h1
             className={`${playfair.className} mb-2 text-center text-2xl font-bold text-emerald-950 sm:text-3xl`}
@@ -111,11 +112,16 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               name="email"
               type="email"
               autoComplete="email"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="next"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={submitting}
               placeholder="you@example.com"
-              className="mb-4 w-full rounded-full border border-[#e6dfd3] bg-white px-4 py-2.5 text-sm outline-none focus:border-emerald-700 disabled:opacity-60"
+              className="mb-4 min-h-12 w-full rounded-full border border-[#e6dfd3] bg-white px-4 text-base text-gray-900 outline-none focus:border-emerald-700 disabled:opacity-60"
             />
 
             <label
@@ -129,16 +135,18 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               name="password"
               type="password"
               autoComplete={isSignup ? "new-password" : "current-password"}
+              enterKeyHint="go"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={submitting}
               placeholder={isSignup ? "At least 8 characters" : "••••••••"}
-              className="w-full rounded-full border border-[#e6dfd3] bg-white px-4 py-2.5 text-sm outline-none focus:border-emerald-700 disabled:opacity-60"
+              className="min-h-12 w-full rounded-full border border-[#e6dfd3] bg-white px-4 text-base text-gray-900 outline-none focus:border-emerald-700 disabled:opacity-60"
             />
 
             {error && (
               <p
                 role="alert"
+                aria-live="assertive"
                 className="mt-4 rounded-xl bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700"
               >
                 {error}
@@ -148,7 +156,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
             <button
               type="submit"
               disabled={submitting}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-emerald-800 py-3 text-sm font-medium text-white transition hover:bg-emerald-900 disabled:opacity-60"
+              className="mt-5 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-emerald-800 text-sm font-medium text-white transition hover:bg-emerald-900 disabled:opacity-60"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {submitting

@@ -4,20 +4,31 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  SquarePen,
-  Send,
-  PanelLeft,
-  LogOut,
-  Trash2,
+  ArrowDown,
   Loader2,
+  Menu,
+  Send,
+  WifiOff,
 } from "lucide-react";
 import {
   ApiError,
   ConversationSummary,
+  MAX_HISTORY_MESSAGES,
   Source,
   api,
 } from "../../lib/api";
 import { useAuth } from "../../lib/auth-context";
+import {
+  useDraft,
+  useLastConversation,
+  useOnlineStatus,
+  useStickyScroll,
+  useVisualViewportHeight,
+} from "../../lib/hooks";
+import { isRtl } from "../../lib/text";
+import ConversationSidebar from "../../components/ConversationSidebar";
+import MessageContent from "../../components/MessageContent";
+import MobileDrawer from "../../components/MobileDrawer";
 
 type Message = {
   role: "user" | "assistant";
@@ -26,33 +37,50 @@ type Message = {
   sources?: Source[];
 };
 
-const LANGUAGES: { code: "en" | "ar" | "ur"; label: string }[] = [
+const LANGUAGES = [
   { code: "en", label: "English" },
   { code: "ar", label: "Arabic" },
   { code: "ur", label: "Urdu" },
-];
+] as const;
+
+type LanguageCode = (typeof LANGUAGES)[number]["code"];
 
 export default function ChatPage() {
   const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
+  const online = useOnlineStatus();
+  useVisualViewportHeight();
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [loadingList, setLoadingList] = useState(true);
   const [loadingConvo, setLoadingConvo] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showSourcesFor, setShowSourcesFor] = useState<number | null>(null);
-  const [showHistory, setShowHistory] = useState(true);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [language, setLanguage] = useState<"en" | "ar" | "ur">("en");
+  const [openSources, setOpenSources] = useState<number | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [language, setLanguage] = useState<LanguageCode>("en");
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { read: readLastConvo, write: writeLastConvo } = useLastConversation(
+    user?.id
+  );
+  const draftKey = user ? `${user.id}_${conversationId ?? "new"}` : null;
+  const { value: input, setValue: setInput, clear: clearDraft } =
+    useDraft(draftKey);
 
-  // Guard: the API rejects unauthenticated calls regardless, but sending
-  // the visitor to the login page is friendlier than an error wall.
+  const { ref: scrollRef, onScroll, pinned, scrollToBottom } =
+    useStickyScroll<HTMLDivElement>([messages.length, sending]);
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const restoredRef = useRef(false);
+  const loggingOutRef = useRef(false);
+
   useEffect(() => {
+    // Skipped during an intentional logout: clearing the user would
+    // otherwise trip this guard and send the visitor to /login, racing
+    // the deliberate navigation back to the landing page.
+    if (loggingOutRef.current) return;
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
 
@@ -60,59 +88,74 @@ export default function ChatPage() {
     try {
       setConversations(await api.listConversations());
     } catch {
-      /* sidebar is non-critical; the chat still works */
+      /* the sidebar is non-critical; chatting still works */
+    } finally {
+      setLoadingList(false);
     }
   }, []);
 
+  const openConversation = useCallback(
+    async (id: number, { silent = false } = {}) => {
+      setDrawerOpen(false);
+      setLoadingConvo(true);
+      setError(null);
+      try {
+        const detail = await api.getConversation(id);
+        setConversationId(detail.id);
+        writeLastConvo(detail.id);
+        setMessages(
+          detail.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            status: m.status,
+            sources: m.sources,
+          }))
+        );
+        setOpenSources(null);
+      } catch (err) {
+        // A remembered conversation may have been deleted, or belong to a
+        // different account on a shared device. Forget it quietly.
+        writeLastConvo(null);
+        if (!silent) {
+          setError(
+            err instanceof ApiError
+              ? err.message
+              : "Could not open that conversation."
+          );
+        }
+      } finally {
+        setLoadingConvo(false);
+      }
+    },
+    [writeLastConvo]
+  );
+
   useEffect(() => {
-    if (user) loadConversations();
+    if (!user) return;
+    loadConversations();
   }, [user, loadConversations]);
 
+  // Restore the conversation that was open before the reload, once.
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, [messages, sending]);
-
-  async function openConversation(id: number) {
-    setMobileSidebarOpen(false);
-    setLoadingConvo(true);
-    setError(null);
-    try {
-      const detail = await api.getConversation(id);
-      setConversationId(detail.id);
-      setMessages(
-        detail.messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-          status: m.status,
-          sources: m.sources,
-        }))
-      );
-      setShowSourcesFor(null);
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Could not open that conversation."
-      );
-    } finally {
-      setLoadingConvo(false);
-    }
-  }
+    if (!user || restoredRef.current) return;
+    restoredRef.current = true;
+    const last = readLastConvo();
+    if (last) openConversation(last, { silent: true });
+  }, [user, readLastConvo, openConversation]);
 
   function startNewChat() {
-    // The conversation row is created lazily by the first /ask, so a new
-    // chat costs nothing until something is actually asked.
+    // The row is created lazily by the first question, so a new chat
+    // costs nothing until something is actually asked.
     setConversationId(null);
     setMessages([]);
-    setInput("");
-    setShowSourcesFor(null);
+    setOpenSources(null);
     setError(null);
-    setMobileSidebarOpen(false);
+    setDrawerOpen(false);
+    writeLastConvo(null);
+    inputRef.current?.focus();
   }
 
-  async function removeConversation(id: number, e: React.MouseEvent) {
-    e.stopPropagation();
+  async function removeConversation(id: number) {
     try {
       await api.deleteConversation(id);
       if (id === conversationId) startNewChat();
@@ -122,23 +165,35 @@ export default function ChatPage() {
     }
   }
 
-  // Takes the text explicitly so quick-actions do not depend on `input`
-  // state that has not been applied yet.
   async function sendMessage(text?: string) {
     const question = (text ?? input).trim();
     if (!question || sending) return;
 
+    if (!online) {
+      setError("You're offline. Reconnect to ask Aalim a question.");
+      return;
+    }
+
     const outgoing: Message = { role: "user", content: question };
     const updated = [...messages, outgoing];
     setMessages(updated);
-    setInput("");
+    clearDraft();
     setSending(true);
     setError(null);
+    scrollToBottom();
 
     try {
       const data = await api.ask({
         question,
-        history: updated.map((m) => ({ role: m.role, content: m.content })),
+        // Prior turns only — the current question travels in `question`.
+        // Including it here made the server's "show me the sources"
+        // handling resolve back to the quick-action text itself instead
+        // of the question it was meant to re-run.
+        // Trimmed to the server's cap: sending more is a 422, which broke
+        // every conversation past ten exchanges.
+        history: messages
+          .slice(-MAX_HISTORY_MESSAGES)
+          .map((m) => ({ role: m.role, content: m.content })),
         language,
         conversation_id: conversationId,
       });
@@ -158,6 +213,7 @@ export default function ChatPage() {
 
       if (data.conversation_id && data.conversation_id !== conversationId) {
         setConversationId(data.conversation_id);
+        writeLastConvo(data.conversation_id);
       }
       loadConversations();
     } catch (err) {
@@ -165,179 +221,141 @@ export default function ChatPage() {
         router.replace("/login");
         return;
       }
+      // Roll the optimistic message back and hand the text to the
+      // composer so nothing the user typed is lost.
       setMessages((prev) => prev.slice(0, -1));
       setInput(question);
       setError(
         err instanceof ApiError
           ? err.message
-          : "Error connecting to the Aalim backend."
+          : "Could not reach Aalim. Check your connection and try again."
       );
     } finally {
       setSending(false);
     }
   }
 
-  const LanguageButtons = () => (
-    <div className="mt-3 flex justify-center gap-2">
-      {LANGUAGES.map(({ code, label }) => (
-        <button
-          key={code}
-          onClick={() => setLanguage(code)}
-          className={`rounded-full px-3 py-1 text-sm font-medium ${
-            language === code
-              ? "bg-emerald-900 text-white"
-              : "bg-[#ebe6dc] text-gray-700"
-          }`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-
-  const SidebarContent = () => (
-    <>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <button
-          onClick={() => setShowHistory((p) => !p)}
-          className="mb-4 flex w-full items-center justify-between text-lg font-semibold text-emerald-900"
-        >
-          <span>Your conversations</span>
-          <PanelLeft
-            className={`h-6 w-6 transition-transform ${showHistory ? "rotate-180" : ""}`}
-          />
-        </button>
-
-        {showHistory && (
-          <div className="space-y-1.5">
-            {conversations.length === 0 && (
-              <p className="px-1 text-xs text-gray-500">
-                No conversations yet. Ask your first question.
-              </p>
-            )}
-            {conversations.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => openConversation(c.id)}
-                className={`group flex cursor-pointer items-center gap-1 rounded-full px-3 py-2 text-xs ${
-                  c.id === conversationId
-                    ? "bg-emerald-800 text-white"
-                    : "bg-[#ebe6dc] text-gray-700 hover:bg-[#e6dfd3]"
-                }`}
-              >
-                <span className="flex-1 truncate">{c.title}</span>
-                <button
-                  onClick={(e) => removeConversation(c.id, e)}
-                  aria-label={`Delete conversation: ${c.title}`}
-                  className="opacity-0 transition group-hover:opacity-70 hover:!opacity-100"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="border-t border-[#e6dfd3] pt-4">
-        <button
-          onClick={startNewChat}
-          className="mb-3 flex w-full items-center justify-center gap-2 rounded-full bg-emerald-800 py-2.5 text-xs font-medium text-white hover:bg-emerald-900"
-        >
-          <SquarePen className="h-4 w-4" />
-          New chat
-        </button>
-
-        <p className="mb-2 truncate px-1 text-[11px] text-gray-500" title={user?.email}>
-          {user?.email}
-        </p>
-        <button
-          onClick={async () => {
-            await logout();
-            router.replace("/");
-          }}
-          className="flex w-full items-center justify-center gap-2 rounded-full px-3 py-2 text-xs text-emerald-900 hover:bg-[#ebe6dc]"
-        >
-          <LogOut className="h-4 w-4" />
-          Log out
-        </button>
-      </div>
-    </>
-  );
-
   if (authLoading || !user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f5f1e8]">
+      <div className="app-shell flex items-center justify-center bg-[#f5f1e8]">
         <Loader2 className="h-6 w-6 animate-spin text-emerald-800" />
+        <span className="sr-only">Loading your account…</span>
       </div>
     );
   }
 
+  const sidebar = (
+    <ConversationSidebar
+      conversations={conversations}
+      activeId={conversationId}
+      loading={loadingList}
+      userEmail={user.email}
+      onOpen={(id) => openConversation(id)}
+      onNew={startNewChat}
+      onDelete={removeConversation}
+      onLogout={async () => {
+        loggingOutRef.current = true;
+        await logout();
+        router.replace("/");
+      }}
+    />
+  );
+
   return (
-    <>
-      {mobileSidebarOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setMobileSidebarOpen(false)}
-          />
-          <aside className="absolute top-0 left-0 flex h-full w-64 flex-col justify-between bg-[#f9f6ef] p-4 shadow-xl">
-            <SidebarContent />
-          </aside>
-        </div>
-      )}
+    <div className="app-shell flex bg-[#f5f1e8] text-gray-900">
+      <MobileDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title="Menu"
+      >
+        {sidebar}
+      </MobileDrawer>
 
-      <div className="flex h-screen bg-[#f5f1e8] text-gray-900">
-        <aside className="hidden w-64 flex-col justify-between border-r border-[#e6dfd3] bg-[#f9f6ef] p-4 md:flex">
-          <SidebarContent />
-        </aside>
+      {/* Desktop sidebar — unchanged behaviour, now a shared component. */}
+      <aside className="pt-safe pb-safe hidden w-72 shrink-0 flex-col border-r border-[#e6dfd3] bg-[#f9f6ef] p-4 md:flex">
+        {sidebar}
+      </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col">
-          <header className="relative border-b border-[#e6dfd3] bg-[#f9f6ef] px-6 py-2">
-            <div className="absolute top-4 left-4 md:hidden">
-              <button
-                onClick={() => setMobileSidebarOpen((p) => !p)}
-                className="rounded-lg p-2 hover:bg-[#ebe6dc]"
-                aria-label="Open menu"
-              >
-                <PanelLeft className="h-6 w-6 text-emerald-900" />
-              </button>
-            </div>
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="chat-header pt-safe shrink-0 border-b border-[#e6dfd3] bg-[#f9f6ef]">
+          <div className="flex items-center gap-2 px-3 py-2 sm:px-4">
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-emerald-900 hover:bg-[#ebe6dc] md:hidden"
+              aria-label="Open menu"
+              aria-expanded={drawerOpen}
+            >
+              <Menu className="h-6 w-6" aria-hidden="true" />
+            </button>
 
-            <div className="flex flex-col items-center gap-1">
+            <div className="flex min-w-0 flex-1 justify-center">
               <Image
                 src="/aalimheader.png"
                 alt="Aalim"
                 width={220}
                 height={60}
                 priority
-                className="h-auto w-[160px] sm:w-[220px]"
+                sizes="(max-width: 640px) 140px, 220px"
+                className="chat-logo h-auto w-[130px] sm:w-[180px] lg:w-[220px]"
               />
-              <p className="text-center text-sm leading-tight text-gray-700">
-                An AI Companion for Muslims, grounded in Qur’an and authentic
-                Hadith.
-              </p>
-              <LanguageButtons />
             </div>
-          </header>
 
-          <div ref={scrollRef} className="flex-1 space-y-6 overflow-y-auto p-6">
+            {/* Balances the menu button so the logo stays centred. */}
+            <div className="h-11 w-11 shrink-0 md:hidden" aria-hidden="true" />
+          </div>
+
+          <div className="lang-row flex flex-wrap items-center justify-center gap-1.5 px-3 pb-2">
+            {LANGUAGES.map(({ code, label }) => (
+              <button
+                key={code}
+                onClick={() => setLanguage(code)}
+                aria-pressed={language === code}
+                className={`lang-btn min-h-9 rounded-full px-3.5 text-xs font-medium transition ${
+                  language === code
+                    ? "bg-emerald-900 text-white"
+                    : "bg-[#ebe6dc] text-gray-700 hover:bg-[#e6dfd3]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </header>
+
+        {!online && (
+          <div
+            role="status"
+            className="flex shrink-0 items-center justify-center gap-2 bg-amber-100 px-4 py-2 text-xs text-amber-900"
+          >
+            <WifiOff className="h-3.5 w-3.5" aria-hidden="true" />
+            You&rsquo;re offline — Aalim needs a connection to answer.
+          </div>
+        )}
+
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={onScroll}
+            className="scroll-area absolute inset-0 space-y-5 px-3 py-4 sm:px-6 sm:py-6"
+          >
             {loadingConvo && (
-              <div className="flex justify-center">
+              <div className="flex justify-center py-6">
                 <Loader2 className="h-5 w-5 animate-spin text-emerald-800" />
+                <span className="sr-only">Loading conversation…</span>
               </div>
             )}
 
             {!loadingConvo && messages.length === 0 && (
-              <div className="mx-auto max-w-md pt-10 text-center">
+              <div className="mx-auto max-w-sm px-2 pt-8 text-center sm:pt-14">
                 <Image
                   src="/AALIM.png"
                   alt=""
                   width={72}
                   height={72}
-                  className="mx-auto mb-4 opacity-80"
+                  sizes="72px"
+                  className="mx-auto mb-4 h-16 w-16 opacity-80 sm:h-18 sm:w-18"
                 />
-                <p className="text-sm text-gray-600">
+                <p className="text-sm leading-relaxed text-gray-600">
                   Ask about a verse, a hadith, or a topic — Aalim will show you
                   the sources behind the answer.
                 </p>
@@ -346,108 +364,117 @@ export default function ChatPage() {
 
             {messages.map((msg, i) => {
               const isAssistant = msg.role === "assistant";
+
               let badge: string | null = null;
               let badgeClass = "";
-
               if (isAssistant) {
                 if (msg.status === "ok") {
                   badge = "📚 Cited from Qur’an & Sahih Hadith";
                   badgeClass = "bg-emerald-700 text-white";
                 } else if (msg.status === "general") {
                   badge = "💬 General Sunni explanation";
-                  badgeClass = "bg-[#e8dcc7] text-gray-800";
+                  badgeClass = "bg-[#e8dcc7] text-gray-900";
                 } else if (msg.status === "refusal") {
                   badge = "🚫 Unable to answer";
-                  badgeClass = "bg-gray-300 text-gray-800";
+                  badgeClass = "bg-gray-200 text-gray-900";
                 }
               }
 
               return (
                 <div
                   key={i}
-                  className={`flex items-start gap-3 ${
-                    msg.role === "user" ? "justify-end" : "justify-start"
+                  className={`flex items-start gap-2 sm:gap-3 ${
+                    isAssistant ? "justify-start" : "justify-end"
                   }`}
                 >
                   {isAssistant && (
                     <Image
                       src="/AALIM.png"
                       alt=""
-                      width={65}
-                      height={65}
-                      className="mt-1 hidden opacity-90 sm:block"
+                      width={44}
+                      height={44}
+                      sizes="44px"
+                      className="mt-1 hidden h-11 w-11 shrink-0 opacity-90 sm:block"
                     />
                   )}
 
-                  <div className="min-w-0 max-w-xl space-y-1">
+                  <div className="min-w-0 max-w-[85%] space-y-1.5 sm:max-w-xl">
                     {badge && (
                       <div
-                        className={`inline-block rounded-full px-3 py-1 text-[11px] font-medium ${badgeClass}`}
+                        className={`inline-block rounded-full px-2.5 py-1 text-[11px] font-medium ${badgeClass}`}
                       >
                         {badge}
                       </div>
                     )}
 
-                    <div
-                      className={`rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
-                        msg.role === "user"
-                          ? "bg-emerald-800 text-white"
-                          : "bg-[#ebe6dc] text-gray-900"
+                    <MessageContent
+                      content={msg.content}
+                      className={`rounded-2xl px-3.5 py-2.5 text-[15px] leading-relaxed sm:px-4 sm:py-3 ${
+                        isAssistant
+                          ? "bg-[#ebe6dc] text-gray-900"
+                          : "bg-emerald-800 text-white"
                       }`}
-                    >
-                      {msg.content}
-                    </div>
+                    />
 
                     {isAssistant && (msg.sources?.length ?? 0) > 0 && (
-                      <button
-                        onClick={() =>
-                          setShowSourcesFor(showSourcesFor === i ? null : i)
-                        }
-                        className="rounded-full bg-[#f0eadf] px-3 py-1 text-xs hover:bg-[#e6dfd3]"
-                      >
-                        {showSourcesFor === i ? "Hide" : "Show"}{" "}
-                        {msg.sources!.length} source
-                        {msg.sources!.length === 1 ? "" : "s"}
-                      </button>
-                    )}
+                      <>
+                        <button
+                          onClick={() =>
+                            setOpenSources(openSources === i ? null : i)
+                          }
+                          aria-expanded={openSources === i}
+                          className="min-h-9 rounded-full bg-[#f0eadf] px-3 text-xs text-gray-800 hover:bg-[#e6dfd3]"
+                        >
+                          {openSources === i ? "Hide" : "Show"}{" "}
+                          {msg.sources!.length} source
+                          {msg.sources!.length === 1 ? "" : "s"}
+                        </button>
 
-                    {isAssistant && showSourcesFor === i && (
-                      <div className="mt-2 space-y-2 text-xs text-gray-700">
-                        {msg.sources!.map((s, idx) => (
-                          <div
-                            key={idx}
-                            className="rounded-xl border border-[#e6dfd3] bg-[#f9f6ef] px-3 py-2"
-                          >
-                            <strong className="text-emerald-900">
-                              {s.reference}
-                            </strong>
-                            {s.text && (
-                              <div className="mt-1 leading-relaxed text-gray-600 italic">
-                                {s.text}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                        {openSources === i && (
+                          <ul className="space-y-2 text-xs text-gray-700">
+                            {msg.sources!.map((s, idx) => {
+                              const srtl = isRtl(s.text);
+                              return (
+                                <li
+                                  key={idx}
+                                  className="rounded-xl border border-[#e6dfd3] bg-[#f9f6ef] px-3 py-2"
+                                >
+                                  <strong className="text-emerald-900">
+                                    {s.reference}
+                                  </strong>
+                                  {s.text && (
+                                    <div
+                                      dir={srtl ? "rtl" : "ltr"}
+                                      className="msg mt-1 leading-relaxed text-gray-600 italic"
+                                    >
+                                      {s.text}
+                                    </div>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </>
                     )}
 
                     {isAssistant && msg.status !== "refusal" && (
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
                         <button
                           disabled={sending}
-                          className="rounded-full bg-[#f0eadf] px-3 py-1 hover:bg-[#e6dfd3] disabled:opacity-50"
                           onClick={() =>
                             sendMessage(
                               "Show the Qur’an and authentic hadith sources for your last answer."
                             )
                           }
+                          className="min-h-9 rounded-full bg-[#f0eadf] px-3 text-xs text-gray-800 hover:bg-[#e6dfd3] disabled:opacity-50"
                         >
                           Show sources
                         </button>
                         <button
                           disabled={sending}
-                          className="rounded-full bg-[#f0eadf] px-3 py-1 hover:bg-[#e6dfd3] disabled:opacity-50"
                           onClick={() => sendMessage("Can you provide more detail?")}
+                          className="min-h-9 rounded-full bg-[#f0eadf] px-3 text-xs text-gray-800 hover:bg-[#e6dfd3] disabled:opacity-50"
                         >
                           More detail
                         </button>
@@ -459,55 +486,80 @@ export default function ChatPage() {
             })}
 
             {sending && (
-              <div className="flex items-center gap-1 text-sm text-gray-600">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Image
                   src="/AALIM.png"
                   alt=""
-                  width={75}
-                  height={75}
-                  className="opacity-70"
+                  width={44}
+                  height={44}
+                  sizes="44px"
+                  className="h-11 w-11 opacity-70"
                 />
                 <span className="italic">Aalim is thinking…</span>
               </div>
             )}
           </div>
 
-          {error && (
-            <div
-              role="alert"
-              className="mx-6 mb-2 rounded-xl bg-red-50 px-4 py-2 text-xs text-red-700"
+          {/* Appears only when the reader has scrolled away from the end. */}
+          {!pinned && messages.length > 0 && (
+            <button
+              onClick={() => scrollToBottom()}
+              aria-label="Scroll to latest message"
+              className="absolute bottom-3 left-1/2 flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border border-[#e6dfd3] bg-[#f9f6ef] shadow-md"
             >
-              {error}
-            </div>
+              <ArrowDown className="h-5 w-5 text-emerald-900" aria-hidden="true" />
+            </button>
           )}
+        </div>
 
-          <div className="border-t border-[#e6dfd3] bg-[#f9f6ef] p-4">
-            <div className="mx-auto flex max-w-3xl gap-3">
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask Aalim..."
-                aria-label="Ask Aalim a question"
-                className="flex-1 rounded-full border border-[#e6dfd3] bg-white px-5 py-3 text-sm outline-none focus:border-emerald-700 disabled:opacity-60"
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                disabled={sending}
-              />
-              <button
-                onClick={() => sendMessage()}
-                disabled={sending || !input.trim()}
-                className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-800 transition hover:bg-emerald-900 disabled:opacity-50"
-                aria-label="Send message"
-              >
-                {sending ? (
-                  <Loader2 className="h-6 w-6 animate-spin text-white" />
-                ) : (
-                  <Send className="h-6 w-6 text-white" />
-                )}
-              </button>
-            </div>
+        {error && (
+          <div
+            role="alert"
+            className="mx-3 mb-2 shrink-0 rounded-xl bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-800 sm:mx-6"
+          >
+            {error}
           </div>
-        </main>
-      </div>
-    </>
+        )}
+
+        <div className="pb-safe shrink-0 border-t border-[#e6dfd3] bg-[#f9f6ef]">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendMessage();
+            }}
+            className="mx-auto flex max-w-3xl items-end gap-2 px-3 py-3 sm:px-4"
+          >
+            <label htmlFor="composer" className="sr-only">
+              Ask Aalim a question
+            </label>
+            <input
+              id="composer"
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask Aalim..."
+              enterKeyHint="send"
+              autoComplete="off"
+              disabled={sending}
+              /* 16px minimum: anything smaller makes iOS Safari zoom the
+                 page when the field receives focus. */
+              className="min-h-11 min-w-0 flex-1 rounded-full border border-[#e6dfd3] bg-white px-4 text-base text-gray-900 outline-none focus:border-emerald-700 disabled:opacity-60"
+            />
+            <button
+              type="submit"
+              disabled={sending || !input.trim()}
+              aria-label="Send message"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-800 text-white transition hover:bg-emerald-900 disabled:opacity-50 sm:h-12 sm:w-12"
+            >
+              {sending ? (
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="h-5 w-5" aria-hidden="true" />
+              )}
+            </button>
+          </form>
+        </div>
+      </main>
+    </div>
   );
 }

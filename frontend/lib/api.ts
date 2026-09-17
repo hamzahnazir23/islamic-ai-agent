@@ -9,6 +9,10 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Mirrors MAX_HISTORY_MESSAGES in backend/api/schemas.py. Exceeding it is
+// a 422, so the client must trim before sending.
+export const MAX_HISTORY_MESSAGES = 20;
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -47,6 +51,8 @@ function errorMessage(status: number, body: unknown): string {
     const first = detail[0] as { loc?: string[]; msg?: string } | undefined;
     const field = first?.loc?.[first.loc.length - 1];
     if (field === "email") return "Please enter a valid email address.";
+    if (field === "history")
+      return "This conversation is too long to continue. Start a new chat.";
     if (field === "password") return "Password must be at least 8 characters.";
     return first?.msg ?? "Please check the details you entered.";
   }
