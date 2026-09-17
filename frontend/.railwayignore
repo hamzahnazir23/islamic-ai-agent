@@ -1,0 +1,4 @@
+# Keep the upload small: these are rebuilt on Railway.
+node_modules
+.next
+tests
